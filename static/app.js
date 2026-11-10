@@ -142,6 +142,34 @@ async function handleEdfUpload() {
     statusEl.style.color = "#15803d";
     statusEl.textContent = `Scan complete for "${data.filename}": ${data.num_windows} consecutive 2.0s windows evaluated.`;
 
+    // Set Overall Recording Level Verdict Banner
+    const verdictBox = document.getElementById("edfOverallVerdict");
+    const seizures = data.windows_summary.filter(w => w.is_seizure);
+    const normals = data.windows_summary.filter(w => !w.is_seizure);
+
+    if (verdictBox) {
+      if (seizures.length > 0) {
+        verdictBox.className = "overall-verdict-box verdict-seizure";
+        const firstTime = seizures[0].time_range;
+        verdictBox.innerHTML = `
+          <div class="verdict-icon">⚠️</div>
+          <div>
+            <div class="verdict-title">SEIZURE ACTIVITY DETECTED IN RECORDING</div>
+            <div class="verdict-subtitle">Identified <strong>${data.seizure_windows_count} epileptiform window(s)</strong> (first occurrence at ${firstTime}). Primary seizure event displayed below.</div>
+          </div>
+        `;
+      } else {
+        verdictBox.className = "overall-verdict-box verdict-normal";
+        verdictBox.innerHTML = `
+          <div class="verdict-icon">✓</div>
+          <div>
+            <div class="verdict-title">NO SEIZURE DETECTED ACROSS FULL RECORDING</div>
+            <div class="verdict-subtitle">All ${data.num_windows} consecutive 2-second windows across ${data.duration_sec}s evaluated within normal baseline limits.</div>
+          </div>
+        `;
+      }
+    }
+
     document.getElementById("edfFileName").textContent = data.filename;
     document.getElementById("edfDuration").textContent = `${data.duration_sec}s`;
     document.getElementById("edfSourceFs").textContent = `${data.source_fs} Hz → 64 Hz`;
@@ -154,12 +182,9 @@ async function handleEdfUpload() {
     const dropdown = document.getElementById("windowSelectDropdown");
     dropdown.innerHTML = "";
 
-    const seizures = data.windows_summary.filter(w => w.is_seizure);
-    const normals = data.windows_summary.filter(w => !w.is_seizure);
-
     if (seizures.length > 0) {
       const seizureGroup = document.createElement("optgroup");
-      seizureGroup.label = `🚨 Detected Seizures (${seizures.length} windows)`;
+      seizureGroup.label = `🚨 Detected Seizure Events (${seizures.length} windows)`;
       seizures.forEach(w => {
         const opt = document.createElement("option");
         opt.value = w.window_index;
@@ -181,13 +206,14 @@ async function handleEdfUpload() {
     });
     dropdown.appendChild(normalGroup);
 
-    // Auto-select first seizure window if one exists, otherwise window 0
+    // Auto-select seizure with highest confidence if any exist, otherwise window 0
     let targetIdx = 0;
     if (seizures.length > 0) {
-      targetIdx = seizures[0].window_index;
+      const best = seizures.reduce((prev, curr) => (curr.probability > prev.probability ? curr : prev), seizures[0]);
+      targetIdx = best.window_index;
     }
     dropdown.value = targetIdx;
-    loadEdfWindow(targetIdx);
+    await loadEdfWindow(targetIdx);
 
   } catch (err) {
     console.error("EDF upload error:", err);
