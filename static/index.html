@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EEG Seizure Detection System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="app-title-group">
+        <div class="logo-mark">EEG</div>
+        <div>
+          <h1>EEG Seizure Detection Monitor</h1>
+          <p class="app-subtitle">CHB-MIT Scalp EEG Analysis & Automated Detection</p>
+        </div>
+      </div>
+      <div class="header-status">
+        <span class="status-indicator"></span>
+        <span class="status-text">System Active</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-container">
+    <!-- Example Input Selection Panel -->
+    <section class="section-card">
+      <div class="section-header">
+        <div>
+          <h2>Test Examples</h2>
+          <p class="section-description">Select any sample below to load its multi-channel EEG sequence and test the detector.</p>
+        </div>
+      </div>
+
+      <div class="examples-row" id="examplesContainer">
+        <!-- Rendered dynamically -->
+        <div class="loading-state">Loading example sequences...</div>
+      </div>
+    </section>
+
+    <!-- Main Analysis Grid -->
+    <div class="layout-grid">
+      <!-- Left Column: Waveform Viewer & Sequence Input -->
+      <section class="section-card waveform-section">
+        <div class="card-title-bar">
+          <div>
+            <h3>EEG Waveform Montage</h3>
+            <span class="card-subtitle" id="currentSampleName">Sample: Seizure Sample 1</span>
+          </div>
+          <div class="montage-tag">4 Bipolar Channels &bull; 2.0s Window</div>
+        </div>
+
+        <div class="waveform-box">
+          <canvas id="waveformCanvas"></canvas>
+        </div>
+
+        <!-- Custom Input Sequence Section -->
+        <div class="custom-sequence-card">
+          <div class="custom-header">
+            <h4>Manual Sequence Input</h4>
+            <span class="format-help">Accepts 128 or 512 numerical values or JSON array</span>
+          </div>
+          <textarea id="sequenceField" rows="4" placeholder="Select an example above to populate this box, or paste your own sequence data here..."></textarea>
+          <div class="sequence-actions">
+            <button class="btn btn-primary" id="btnDetectCustom">Analyze Input Sequence</button>
+            <button class="btn btn-outline" id="btnRestorePreset">Reset to Active Preset</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Diagnostic Result & Confidence -->
+      <section class="section-card result-section">
+        <div class="card-title-bar">
+          <h3>Detection Result</h3>
+          <span class="timestamp-tag" id="evaluationTimestamp">Ready</span>
+        </div>
+
+        <!-- Primary Detection Outcome Card -->
+        <div class="result-display" id="resultDisplayBox">
+          <div class="result-status-icon" id="resultStatusIcon">&mdash;</div>
+          <div class="result-text-group">
+            <div class="result-label">Classification</div>
+            <div class="result-main-value" id="resultTitle">Awaiting Input</div>
+            <p class="result-subtext" id="resultDescription">Click any test sample to evaluate.</p>
+          </div>
+        </div>
+
+        <!-- Confidence Metric Card -->
+        <div class="confidence-card">
+          <div class="confidence-header">
+            <span class="confidence-label">Detection Confidence</span>
+            <span class="confidence-number" id="confidencePercent">--%</span>
+          </div>
+          <div class="meter-track">
+            <div class="meter-bar" id="confidenceBar" style="width: 0%;"></div>
+          </div>
+          <div class="confidence-meta">
+            <span>Model Probability: <strong id="rawProbability">--</strong></span>
+            <span>Threshold: <strong>0.50</strong></span>
+          </div>
+        </div>
+
+        <!-- Frequency Spectrum Summary -->
+        <div class="spectrum-card">
+          <h4>Frequency Band Power Distribution</h4>
+          <div class="spectrum-grid">
+            <div class="band-column">
+              <span class="band-name">Delta (0.5–4 Hz)</span>
+              <span class="band-pct" id="deltaVal">--%</span>
+              <div class="band-track"><div class="band-fill delta-fill" id="deltaBar"></div></div>
+            </div>
+            <div class="band-column">
+              <span class="band-name">Theta (4–8 Hz)</span>
+              <span class="band-pct" id="thetaVal">--%</span>
+              <div class="band-track"><div class="band-fill theta-fill" id="thetaBar"></div></div>
+            </div>
+            <div class="band-column">
+              <span class="band-name">Alpha (8–13 Hz)</span>
+              <span class="band-pct" id="alphaVal">--%</span>
+              <div class="band-track"><div class="band-fill alpha-fill" id="alphaBar"></div></div>
+            </div>
+            <div class="band-column">
+              <span class="band-name">Beta (13–30 Hz)</span>
+              <span class="band-pct" id="betaVal">--%</span>
+              <div class="band-track"><div class="band-fill beta-fill" id="betaBar"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Channel Measurements -->
+        <div class="table-card">
+          <h4>Channel Statistics</h4>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Electrode</th>
+                <th>Mean</th>
+                <th>Std Dev</th>
+                <th>Peak-to-Peak</th>
+              </tr>
+            </thead>
+            <tbody id="channelMetricsTable">
+              <tr>
+                <td colspan="4" class="empty-cell">Select a sample to view channel metrics</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <div class="footer-inner">
+      <span>EEG Clinical Seizure Classification System &bull; CHB-MIT Dataset</span>
+      <span>Automated Signal Validation Protocol</span>
+    </div>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
