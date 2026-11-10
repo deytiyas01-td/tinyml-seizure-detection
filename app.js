@@ -97,11 +97,18 @@ async function fetchExamples() {
       renderExamplesList(referenceExamples);
       if (statusIndicator) statusIndicator.style.backgroundColor = "#22c55e";
       if (statusText) statusText.textContent = "Backend Connected";
+      if (window._pollTimer) { clearTimeout(window._pollTimer); window._pollTimer = null; }
     }
   } catch (err) {
     console.warn("Backend not reachable yet:", err);
     if (statusIndicator) statusIndicator.style.backgroundColor = "#ef4444";
-    if (statusText) statusText.textContent = API_BASE_URL ? "Backend Waking Up..." : "Backend Disconnected";
+    if (statusText) statusText.textContent = API_BASE_URL ? "Backend Waking Up (takes ~30s)..." : "Backend Disconnected";
+    if (API_BASE_URL && !window._pollTimer) {
+      window._pollTimer = setTimeout(() => {
+        window._pollTimer = null;
+        fetchExamples();
+      }, 5000);
+    }
   }
 }
 
