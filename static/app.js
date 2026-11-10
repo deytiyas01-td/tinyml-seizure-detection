@@ -289,8 +289,8 @@ function displayWindowResult(summary, windowData) {
   const probText = document.getElementById("rawProbability");
   const timestampTag = document.getElementById("evaluationTimestamp");
 
-  const isSeizure = summary.is_seizure;
-  const confidence = summary.confidence_percentage;
+  const isSeizure = Boolean(summary.is_confirmed_seizure);
+  const confidence = isSeizure ? summary.confidence_percentage : Math.max(summary.confidence_percentage, (1.0 - summary.probability) * 100);
   const probability = summary.probability;
 
   // Classification Box

@@ -285,19 +285,21 @@ def evaluate_edf_stream(file_obj_or_path):
         })
 
     # Clinical Temporal Cluster Filter (ACNS Standard):
-    # An electrographic seizure must demonstrate sustained rhythmic discharge lasting >= 6 seconds
-    # (i.e. at least 3 consecutive windows with elevated probability, or peak probability >= 0.85 with >= 2 windows).
-    # Isolated single 2-second transients (e.g. eye blinks, electrode pops) are rejected as physiological artifacts.
+    # An electrographic seizure must demonstrate sustained rhythmic discharge lasting >= 8 seconds
+    # (i.e. at least 4 consecutive 2-second windows with elevated probability >= 0.65).
+    # Brief 2-4 second transients (e.g. sleep spindles, vertex sharp waves, movement artifacts) are rejected.
     seizure_clusters = []
     current_cluster = []
+    MIN_SEIZURE_WINDOWS = 4  # 4 * 2.0s = 8.0s minimum sustained epileptiform discharge
+    
     for w in window_results:
         if w["probability"] >= 0.65:
             current_cluster.append(w)
         else:
-            if len(current_cluster) >= 3 or (len(current_cluster) >= 2 and any(cw["probability"] >= 0.85 for cw in current_cluster)):
+            if len(current_cluster) >= MIN_SEIZURE_WINDOWS:
                 seizure_clusters.append(current_cluster)
             current_cluster = []
-    if len(current_cluster) >= 3 or (len(current_cluster) >= 2 and any(cw["probability"] >= 0.85 for cw in current_cluster)):
+    if len(current_cluster) >= MIN_SEIZURE_WINDOWS:
         seizure_clusters.append(current_cluster)
 
     confirmed_indices = set()
