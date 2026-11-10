@@ -70,6 +70,27 @@ def get_examples():
         "examples": engine.REFERENCE_EXAMPLES
     })
 
+@app.route("/api/upload_edf", methods=["POST"])
+def upload_edf():
+    """Upload and evaluate a real European Data Format (.edf) EEG recording."""
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded. Expected multipart 'file' field."}), 400
+
+    file = request.files['file']
+    if not file.filename.lower().endswith(".edf"):
+        return jsonify({"error": "Uploaded file must have .edf extension."}), 400
+
+    try:
+        res = engine.evaluate_edf_stream(file.stream)
+        res["status"] = "success"
+        res["filename"] = file.filename
+        return jsonify(res)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        print(f"[Error in /api/upload_edf]: {e}")
+        return jsonify({"error": f"Failed to process EDF file: {str(e)}"}), 500
+
 @app.route("/api/predict", methods=["POST"])
 def predict():
     """Secure endpoint for EEG sequence seizure detection."""
