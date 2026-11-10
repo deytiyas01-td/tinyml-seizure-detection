@@ -144,18 +144,20 @@ async function handleEdfUpload() {
 
     // Set Overall Recording Level Verdict Banner
     const verdictBox = document.getElementById("edfOverallVerdict");
-    const seizures = data.windows_summary.filter(w => w.is_seizure);
-    const normals = data.windows_summary.filter(w => !w.is_seizure);
+    const confirmedSeizures = data.windows_summary.filter(w => w.is_confirmed_seizure);
+    const normals = data.windows_summary.filter(w => !w.is_confirmed_seizure);
 
     if (verdictBox) {
-      if (seizures.length > 0) {
+      if (data.seizure_detected_overall && confirmedSeizures.length > 0) {
         verdictBox.className = "overall-verdict-box verdict-seizure";
-        const firstTime = seizures[0].time_range;
+        const clusterInfo = data.seizure_clusters && data.seizure_clusters.length > 0
+          ? `${data.seizure_clusters.length} clinical seizure episode(s) (${data.seizure_clusters[0].duration_sec}s sustained discharge from ${data.seizure_clusters[0].start_time} to ${data.seizure_clusters[0].end_time})`
+          : `${data.seizure_windows_count} confirmed seizure windows`;
         verdictBox.innerHTML = `
           <div class="verdict-icon">⚠️</div>
           <div>
             <div class="verdict-title">SEIZURE ACTIVITY DETECTED IN RECORDING</div>
-            <div class="verdict-subtitle">Identified <strong>${data.seizure_windows_count} epileptiform window(s)</strong> (first occurrence at ${firstTime}). Primary seizure event displayed below.</div>
+            <div class="verdict-subtitle">Identified <strong>${clusterInfo}</strong>. Peak seizure event displayed below.</div>
           </div>
         `;
       } else {
@@ -164,7 +166,7 @@ async function handleEdfUpload() {
           <div class="verdict-icon">✓</div>
           <div>
             <div class="verdict-title">NO SEIZURE DETECTED ACROSS FULL RECORDING</div>
-            <div class="verdict-subtitle">All ${data.num_windows} consecutive 2-second windows across ${data.duration_sec}s evaluated within normal baseline limits.</div>
+            <div class="verdict-subtitle">All ${data.num_windows} consecutive 2-second windows across ${data.duration_sec}s classified within normal baseline limits (0 sustained seizure events).</div>
           </div>
         `;
       }
@@ -178,14 +180,14 @@ async function handleEdfUpload() {
 
     summaryBox.style.display = "block";
 
-    // Populate window selector with Seizures grouped at the top
+    // Populate window selector with Confirmed Seizures grouped at the top
     const dropdown = document.getElementById("windowSelectDropdown");
     dropdown.innerHTML = "";
 
-    if (seizures.length > 0) {
+    if (confirmedSeizures.length > 0) {
       const seizureGroup = document.createElement("optgroup");
-      seizureGroup.label = `🚨 Detected Seizure Events (${seizures.length} windows)`;
-      seizures.forEach(w => {
+      seizureGroup.label = `🚨 Confirmed Seizure Episodes (${confirmedSeizures.length} windows)`;
+      confirmedSeizures.forEach(w => {
         const opt = document.createElement("option");
         opt.value = w.window_index;
         opt.textContent = `Window ${w.window_index + 1} (${w.time_range}) - SEIZURE (${w.confidence_percentage.toFixed(1)}%)`;
@@ -208,8 +210,8 @@ async function handleEdfUpload() {
 
     // Auto-select seizure with highest confidence if any exist, otherwise window 0
     let targetIdx = 0;
-    if (seizures.length > 0) {
-      const best = seizures.reduce((prev, curr) => (curr.probability > prev.probability ? curr : prev), seizures[0]);
+    if (confirmedSeizures.length > 0) {
+      const best = confirmedSeizures.reduce((prev, curr) => (curr.probability > prev.probability ? curr : prev), confirmedSeizures[0]);
       targetIdx = best.window_index;
     }
     dropdown.value = targetIdx;

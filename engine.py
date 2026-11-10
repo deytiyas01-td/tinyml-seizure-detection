@@ -284,9 +284,44 @@ def evaluate_edf_stream(file_obj_or_path):
             "is_seizure": res["is_seizure"]
         })
 
+    # Clinical Temporal Cluster Filter (ACNS Standard):
+    # An electrographic seizure must demonstrate sustained rhythmic discharge lasting >= 6 seconds
+    # (i.e. at least 3 consecutive windows with elevated probability, or peak probability >= 0.85 with >= 2 windows).
+    # Isolated single 2-second transients (e.g. eye blinks, electrode pops) are rejected as physiological artifacts.
+    seizure_clusters = []
+    current_cluster = []
+    for w in window_results:
+        if w["probability"] >= 0.65:
+            current_cluster.append(w)
+        else:
+            if len(current_cluster) >= 3 or (len(current_cluster) >= 2 and any(cw["probability"] >= 0.85 for cw in current_cluster)):
+                seizure_clusters.append(current_cluster)
+            current_cluster = []
+    if len(current_cluster) >= 3 or (len(current_cluster) >= 2 and any(cw["probability"] >= 0.85 for cw in current_cluster)):
+        seizure_clusters.append(current_cluster)
+
+    confirmed_indices = set()
+    cluster_summaries = []
+    for cl in seizure_clusters:
+        for cw in cl:
+            confirmed_indices.add(cw["window_index"])
+        cluster_summaries.append({
+            "start_time": cl[0]["time_range"].split(" - ")[0],
+            "end_time": cl[-1]["time_range"].split(" - ")[1],
+            "duration_sec": len(cl) * 2.0,
+            "peak_probability": round(max(cw["probability"] for cw in cl), 4),
+            "num_windows": len(cl)
+        })
+
+    for w in window_results:
+        w["is_confirmed_seizure"] = w["window_index"] in confirmed_indices
+
+    seizure_detected_overall = len(seizure_clusters) > 0
+    confirmed_seizure_windows_count = len(confirmed_indices)
+
     # Optimized window waveform payload:
     # If small file (<= 100 windows), pre-package all.
-    # If large file (> 100 windows), pre-package all seizures + first 40 normal windows
+    # If large file (> 100 windows), pre-package all confirmed seizures + first 40 normal windows
     # Remaining windows are retrieved via /api/edf_window on demand in ~50ms.
     windows_data_dict = {}
     if len(windows) <= 100:
@@ -294,7 +329,7 @@ def evaluate_edf_stream(file_obj_or_path):
             windows_data_dict[str(idx)] = np.round(windows[idx], 3).tolist()
     else:
         for w in window_results:
-            if w["is_seizure"]:
+            if w["is_confirmed_seizure"] or w["is_seizure"]:
                 idx = w["window_index"]
                 windows_data_dict[str(idx)] = np.round(windows[idx], 3).tolist()
         for idx in range(min(40, len(windows))):
@@ -308,9 +343,11 @@ def evaluate_edf_stream(file_obj_or_path):
         "target_fs": 64,
         "channel_mapping": edf_res["channel_mapping"],
         "num_windows": prep_res["num_windows"],
-        "seizure_windows_count": seizure_count,
-        "non_seizure_windows_count": prep_res["num_windows"] - seizure_count,
-        "seizure_detected_overall": seizure_count > 0,
+        "seizure_windows_count": confirmed_seizure_windows_count,
+        "raw_candidate_windows_count": seizure_count,
+        "non_seizure_windows_count": prep_res["num_windows"] - confirmed_seizure_windows_count,
+        "seizure_detected_overall": seizure_detected_overall,
+        "seizure_clusters": cluster_summaries,
         "windows_summary": window_results,
         "all_windows_data": windows_data_dict
     }
