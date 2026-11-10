@@ -3,6 +3,7 @@ import sys
 import time
 from collections import defaultdict
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
+from flask_cors import CORS
 
 # Ensure current directory is in path
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -12,6 +13,7 @@ if CURRENT_DIR not in sys.path:
 import engine
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024  # 1 MB max payload to prevent DoS
 
 # In-memory sliding window rate limiter (max 60 requests/minute per client IP)

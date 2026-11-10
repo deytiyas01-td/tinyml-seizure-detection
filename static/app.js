@@ -4,10 +4,53 @@ let currentChart = null;
 let referenceExamples = [];
 let activeExampleIndex = 0;
 
+let API_BASE_URL = localStorage.getItem("seizure_api_base") || "";
+
+function getApiUrl(endpoint) {
+  if (!API_BASE_URL) return endpoint;
+  return API_BASE_URL.replace(/\/+$/, "") + endpoint;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   setupEventListeners();
+  setupApiConfig();
   fetchExamples();
 });
+
+function setupApiConfig() {
+  const btnConfig = document.getElementById("btnConfigApi");
+  const configBar = document.getElementById("apiConfigBar");
+  const input = document.getElementById("apiUrlInput");
+  const btnSave = document.getElementById("btnSaveApiUrl");
+  const btnReset = document.getElementById("btnResetApiUrl");
+
+  if (input) input.value = API_BASE_URL;
+
+  if (btnConfig && configBar) {
+    btnConfig.addEventListener("click", () => {
+      configBar.style.display = configBar.style.display === "none" ? "block" : "none";
+    });
+  }
+
+  if (btnSave && input) {
+    btnSave.addEventListener("click", () => {
+      API_BASE_URL = input.value.trim();
+      localStorage.setItem("seizure_api_base", API_BASE_URL);
+      if (configBar) configBar.style.display = "none";
+      fetchExamples();
+    });
+  }
+
+  if (btnReset && input) {
+    btnReset.addEventListener("click", () => {
+      API_BASE_URL = "";
+      input.value = "";
+      localStorage.removeItem("seizure_api_base");
+      if (configBar) configBar.style.display = "none";
+      fetchExamples();
+    });
+  }
+}
 
 function setupEventListeners() {
   const btnCustom = document.getElementById("btnDetectCustom");
@@ -28,12 +71,17 @@ function setupEventListeners() {
 // Fetch 4 test examples from backend
 async function fetchExamples() {
   const container = document.getElementById("examplesContainer");
+  const statusIndicator = document.getElementById("serverStatusIndicator");
+  const statusText = document.getElementById("serverStatusText");
+
   try {
-    const res = await fetch("/api/examples");
+    const res = await fetch(getApiUrl("/api/examples"));
     const json = await res.json();
     if (json.status === "success" && json.examples) {
       referenceExamples = json.examples;
       renderExamplesList(referenceExamples);
+      if (statusIndicator) statusIndicator.style.backgroundColor = "#22c55e";
+      if (statusText) statusText.textContent = "Backend Connected";
       if (referenceExamples.length > 0) {
         selectExample(0);
       }
@@ -42,7 +90,9 @@ async function fetchExamples() {
     }
   } catch (err) {
     console.error("Failed to load reference examples:", err);
-    container.innerHTML = `<div class="empty-cell">Server connection error. Please verify the application is running.</div>`;
+    if (statusIndicator) statusIndicator.style.backgroundColor = "#ef4444";
+    if (statusText) statusText.textContent = "Backend Disconnected";
+    container.innerHTML = `<div class="empty-cell">Server connection error. If your backend is deployed on Render, click the ⚙️ icon above to enter your Render backend URL.</div>`;
   }
 }
 
@@ -196,7 +246,7 @@ async function runDetection(sequenceMatrix) {
   const timestampTag = document.getElementById("evaluationTimestamp");
 
   try {
-    const res = await fetch("/api/predict", {
+    const res = await fetch(getApiUrl("/api/predict"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sequence: sequenceMatrix })

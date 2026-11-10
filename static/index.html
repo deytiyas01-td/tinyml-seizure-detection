@@ -22,11 +22,22 @@
         </div>
       </div>
       <div class="header-status">
-        <span class="status-indicator"></span>
-        <span class="status-text">System Active</span>
+        <span class="status-indicator" id="serverStatusIndicator"></span>
+        <span class="status-text" id="serverStatusText">Backend Connected</span>
+        <button class="btn-api-config" id="btnConfigApi" title="Configure Backend API URL">⚙️</button>
       </div>
     </div>
   </header>
+
+  <!-- Optional Backend API URL Modal/Drawer -->
+  <div class="api-config-bar" id="apiConfigBar" style="display: none;">
+    <div class="config-bar-inner">
+      <label for="apiUrlInput">Render Backend URL:</label>
+      <input type="text" id="apiUrlInput" placeholder="e.g. https://tinyml-seizure-detection.onrender.com">
+      <button class="btn btn-primary btn-sm" id="btnSaveApiUrl">Save & Connect</button>
+      <button class="btn btn-outline btn-sm" id="btnResetApiUrl">Use Same Domain</button>
+    </div>
+  </div>
 
   <main class="page-container">
     <!-- Example Input Selection Panel -->

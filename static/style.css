@@ -106,6 +106,51 @@ body {
   border-radius: 50%;
 }
 
+.btn-api-config {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0 4px;
+  opacity: 0.7;
+}
+
+.btn-api-config:hover {
+  opacity: 1.0;
+}
+
+.api-config-bar {
+  background: #f1f5f9;
+  border-bottom: 1px solid var(--border-color);
+  padding: 10px 0;
+}
+
+.config-bar-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+}
+
+.config-bar-inner input {
+  flex: 1;
+  min-width: 250px;
+  border: 1px solid var(--border-darker);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.btn-sm {
+  padding: 5px 10px !important;
+  font-size: 0.78rem !important;
+}
+
 /* Page Layout */
 .page-container {
   max-width: 1320px;
