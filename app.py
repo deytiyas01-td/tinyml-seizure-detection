@@ -14,7 +14,7 @@ import engine
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 CORS(app, resources={r"/api/*": {"origins": "*"}})
-app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024  # 1 MB max payload to prevent DoS
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max payload for clinical EDF recordings
 
 # In-memory sliding window rate limiter (max 60 requests/minute per client IP)
 RATE_LIMIT_WINDOW = 60

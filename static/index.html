@@ -18,40 +18,68 @@
         <div class="logo-mark">EEG</div>
         <div>
           <h1>EEG Seizure Detection Monitor</h1>
-          <p class="app-subtitle">CHB-MIT Scalp EEG Analysis & Automated Detection</p>
+          <p class="app-subtitle">CHB-MIT Scalp EEG Analysis & Automated Detection (4 Channels @ 64 Hz)</p>
         </div>
       </div>
       <div class="header-status">
-        <span class="status-indicator" id="serverStatusIndicator"></span>
-        <span class="status-text" id="serverStatusText">Connecting...</span>
-        <button class="btn-api-config" id="btnConfigApi" title="Configure Backend API URL">⚙️</button>
+        <span class="status-indicator"></span>
+        <span class="status-text">System Live</span>
       </div>
     </div>
   </header>
 
-  <!-- Prominent Backend Connection Bar -->
-  <div class="api-config-bar" id="apiConfigBar">
-    <div class="config-bar-inner">
-      <span class="config-title">🔗 Render Backend URL:</span>
-      <input type="text" id="apiUrlInput" placeholder="Paste your Render URL here (e.g. https://tinyml-seizure-detection.onrender.com)">
-      <button class="btn btn-primary btn-sm" id="btnSaveApiUrl">Connect Backend</button>
-      <button class="btn btn-outline btn-sm" id="btnResetApiUrl">Reset</button>
-    </div>
-  </div>
-
   <main class="page-container">
-    <!-- Example Input Selection Panel -->
+    <!-- Clinical Disclaimer -->
+    <div class="disclaimer-banner">
+      <strong>Educational & Research Demonstration:</strong> Trained on the CHB-MIT Scalp EEG database. This system is experimental and not approved for clinical diagnostic use or patient care.
+    </div>
+
+    <!-- Section 1: Real EDF File Upload -->
     <section class="section-card">
       <div class="section-header">
         <div>
-          <h2>Test Examples</h2>
-          <p class="section-description">Select any sample below to load its multi-channel EEG sequence and test the detector.</p>
+          <h2>Clinical Scalp EEG Recording (.edf Upload)</h2>
+          <p class="section-description">Upload a standard European Data Format (.edf) file. The system will validate the 4 required bipolar channels (<code>FP1-F7</code>, <code>F7-T7</code>, <code>T7-P7</code>, <code>P7-O1</code>), resample to 64 Hz, and evaluate consecutive 2-second windows.</p>
+        </div>
+      </div>
+
+      <div class="edf-upload-box">
+        <div class="upload-controls">
+          <input type="file" id="edfFileInput" accept=".edf" class="file-input">
+          <button class="btn btn-primary" id="btnUploadEdf">Process & Scan Recording</button>
+        </div>
+        <div id="edfUploadStatus" class="upload-status-text">Select an EDF recording to analyze</div>
+      </div>
+
+      <!-- EDF Processing Summary (Appears after upload) -->
+      <div id="edfSummaryContainer" style="display: none; margin-top: 14px;">
+        <div class="edf-metrics-row">
+          <div class="edf-metric"><span class="m-label">File:</span> <strong id="edfFileName">--</strong></div>
+          <div class="edf-metric"><span class="m-label">Duration:</span> <strong id="edfDuration">--</strong></div>
+          <div class="edf-metric"><span class="m-label">Source Rate:</span> <strong id="edfSourceFs">--</strong></div>
+          <div class="edf-metric"><span class="m-label">Windows (2.0s):</span> <strong id="edfTotalWindows">--</strong></div>
+          <div class="edf-metric"><span class="m-label">Seizure Windows:</span> <strong id="edfSeizureCount" style="color: #b91c1c;">--</strong></div>
+        </div>
+        <div class="window-stepper" style="margin-top: 12px; display: flex; align-items: center; gap: 10px;">
+          <label for="windowSelectDropdown" style="font-size: 0.82rem; font-weight: 600;">Inspect Window:</label>
+          <select id="windowSelectDropdown" style="padding: 4px 8px; font-family: var(--font-mono); font-size: 0.8rem; border: 1px solid var(--border-darker); border-radius: 4px;"></select>
+          <span id="currentWindowInfo" style="font-size: 0.78rem; color: var(--text-muted);"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 2: Synthetic Demonstration Test Cases -->
+    <section class="section-card">
+      <div class="section-header">
+        <div>
+          <h2>Synthetic Demonstration Signals</h2>
+          <p class="section-description">Mathematical test waveforms for validating the interface layout and API contract. <em>(Not clinical patient recordings)</em></p>
         </div>
       </div>
 
       <div class="examples-row" id="examplesContainer">
         <!-- Rendered dynamically -->
-        <div class="loading-state">Loading example sequences...</div>
+        <div class="loading-state">Loading demonstration signals...</div>
       </div>
     </section>
 
@@ -61,10 +89,10 @@
       <section class="section-card waveform-section">
         <div class="card-title-bar">
           <div>
-            <h3>EEG Waveform Montage</h3>
-            <span class="card-subtitle" id="currentSampleName">Sample: Seizure Sample 1</span>
+            <h3>EEG Waveform Montage (2.0s Window)</h3>
+            <span class="card-subtitle" id="currentSampleName">Active: Synthetic Pattern 1</span>
           </div>
-          <div class="montage-tag">4 Bipolar Channels &bull; 2.0s Window</div>
+          <div class="montage-tag">4 Bipolar Channels @ 64 Hz</div>
         </div>
 
         <div class="waveform-box">
@@ -74,13 +102,13 @@
         <!-- Custom Input Sequence Section -->
         <div class="custom-sequence-card">
           <div class="custom-header">
-            <h4>Manual Sequence Input</h4>
-            <span class="format-help">Accepts 128 or 512 numerical values or JSON array</span>
+            <h4>Manual 4-Channel Sequence Input</h4>
+            <span class="format-help">Requires 4 channels × 128 samples (total 512 values in order: FP1-F7, F7-T7, T7-P7, P7-O1)</span>
           </div>
-          <textarea id="sequenceField" rows="4" placeholder="Select an example above to populate this box, or paste your own sequence data here..."></textarea>
+          <textarea id="sequenceField" rows="3" placeholder="Paste 512 numerical values or JSON 4x128 array..."></textarea>
           <div class="sequence-actions">
-            <button class="btn btn-primary" id="btnDetectCustom">Analyze Input Sequence</button>
-            <button class="btn btn-outline" id="btnRestorePreset">Reset to Active Preset</button>
+            <button class="btn btn-primary" id="btnDetectCustom">Analyze Custom Input</button>
+            <button class="btn btn-outline" id="btnRestorePreset">Reload Preset</button>
           </div>
         </div>
       </section>
@@ -98,7 +126,7 @@
           <div class="result-text-group">
             <div class="result-label">Classification</div>
             <div class="result-main-value" id="resultTitle">Awaiting Input</div>
-            <p class="result-subtext" id="resultDescription">Click any test sample to evaluate.</p>
+            <p class="result-subtext" id="resultDescription">Select an example or upload an EDF file to evaluate.</p>
           </div>
         </div>
 
@@ -169,8 +197,8 @@
 
   <footer class="app-footer">
     <div class="footer-inner">
-      <span>EEG Clinical Seizure Classification System &bull; CHB-MIT Dataset</span>
-      <span>Automated Signal Validation Protocol</span>
+      <span>CHB-MIT Scalp EEG Seizure Classification System &bull; Standalone Web Application</span>
+      <span>Fixed Channels: FP1-F7, F7-T7, T7-P7, P7-O1</span>
     </div>
   </footer>
 
