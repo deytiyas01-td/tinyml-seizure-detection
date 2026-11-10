@@ -195,14 +195,17 @@ def run_inference(input_array, already_normalized=False):
         )
 
     # Apply standardization per channel (matching notebook preprocessing)
-    if not already_normalized:
-        mean_val = np.mean(arr, axis=1, keepdims=True)
-        std_val = np.std(arr, axis=1, keepdims=True) + 1e-6
-        norm_arr = (arr - mean_val) / std_val
-    else:
+    mean_val = np.mean(arr, axis=1, keepdims=True)
+    std_val = np.std(arr, axis=1, keepdims=True)
+    
+    # Check if the signal is already standardized at recording level (|mean| < 0.6 and std in [0.4, 4.0])
+    # Re-normalizing an isolated seizure window squashes the epileptiform amplitude burst.
+    is_approx_normalized = (np.all(np.abs(mean_val) < 0.6) and np.all((std_val > 0.4) & (std_val < 4.0)))
+
+    if already_normalized or is_approx_normalized:
         norm_arr = arr
-        mean_val = np.mean(arr, axis=1, keepdims=True)
-        std_val = np.std(arr, axis=1, keepdims=True)
+    else:
+        norm_arr = (arr - mean_val) / (std_val + 1e-6)
 
     prob = forward_pass_numpy(norm_arr)
     prob = float(np.clip(prob, 0.0, 1.0))

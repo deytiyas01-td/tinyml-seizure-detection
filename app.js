@@ -271,7 +271,64 @@ async function loadEdfWindow(idx) {
       field.value = JSON.stringify(windowData, null, 2);
     }
     renderWaveform(windowData, channels);
-    runDetection(windowData);
+    // Display the recording-level evaluation directly with zero latency
+    displayWindowResult(summary, windowData);
+  }
+}
+
+// Display evaluation outcome directly from EDF window summary
+function displayWindowResult(summary, windowData) {
+  const displayBox = document.getElementById("resultDisplayBox");
+  const statusIcon = document.getElementById("resultStatusIcon");
+  const resultTitle = document.getElementById("resultTitle");
+  const resultDesc = document.getElementById("resultDescription");
+  const confText = document.getElementById("confidencePercent");
+  const confBar = document.getElementById("confidenceBar");
+  const probText = document.getElementById("rawProbability");
+  const timestampTag = document.getElementById("evaluationTimestamp");
+
+  const isSeizure = summary.is_seizure;
+  const confidence = summary.confidence_percentage;
+  const probability = summary.probability;
+
+  // Classification Box
+  displayBox.className = `result-display ${isSeizure ? 'status-seizure' : 'status-normal'}`;
+  statusIcon.textContent = isSeizure ? "!" : "✓";
+  resultTitle.textContent = isSeizure ? "Seizure Activity Detected" : "No Seizure Detected (Normal EEG)";
+  resultDesc.textContent = isSeizure
+    ? `Epileptiform discharge identified in Window ${summary.window_index + 1} (${summary.time_range}).`
+    : `Baseline background activity in Window ${summary.window_index + 1} (${summary.time_range}) within non-ictal limits.`;
+
+  // Confidence
+  confText.textContent = `${confidence.toFixed(2)}%`;
+  confBar.style.width = `${Math.min(100, Math.max(8, confidence))}%`;
+  confBar.className = `meter-bar ${isSeizure ? 'bar-seizure' : 'bar-normal'}`;
+  probText.textContent = probability.toFixed(4);
+
+  // Update channel stats table
+  if (windowData && windowData.length === 4) {
+    const tbody = document.getElementById("channelMetricsTable");
+    const channels = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1"];
+    if (tbody) {
+      tbody.innerHTML = windowData.map((ch, i) => {
+        const mean = (ch.reduce((a, b) => a + b, 0) / ch.length).toFixed(3);
+        const variance = ch.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / ch.length;
+        const std = Math.sqrt(variance).toFixed(3);
+        const ptp = (Math.max(...ch) - Math.min(...ch)).toFixed(3);
+        return `
+          <tr>
+            <td><strong>${channels[i] || `CH ${i+1}`}</strong></td>
+            <td>${mean}</td>
+            <td>${std}</td>
+            <td>${ptp}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+  }
+
+  if (timestampTag) {
+    timestampTag.textContent = `Window ${summary.window_index + 1} (${summary.time_range}) evaluated`;
   }
 }
 
