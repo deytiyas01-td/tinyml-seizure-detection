@@ -1,148 +1,59 @@
 import os
 import sys
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
-# Try importing schema_py_generated from tensorflow site-packages if available
-TF_PY_PATH = r'C:\Users\TIYAS DEY\AppData\Local\Programs\Python\Python311\Lib\site-packages\tensorflow\lite\python'
-if os.path.exists(TF_PY_PATH) and TF_PY_PATH not in sys.path:
-    sys.path.append(TF_PY_PATH)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WEIGHTS_PATH = os.path.join(BASE_DIR, "model_weights.npz")
 
-import schema_py_generated as schema_fb
-
-MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seizure_model_int8.tflite")
-
-class TinyMLSeizureNet(nn.Module):
-    def __init__(self, weights):
-        super().__init__()
-        # Conv1: 4 in_channels -> 8 out_channels, kernel=15, stride=2, padding=7 (same)
-        self.conv1 = nn.Conv1d(4, 8, kernel_size=15, stride=2, padding=7)
-        self.conv1.weight.data = torch.from_numpy(weights['w_c1'])
-        self.conv1.bias.data = torch.from_numpy(weights['b_c1'])
-        
-        # Depthwise Conv: 8 in_channels -> 8 out_channels, kernel=7, stride=2, padding=3 (same), groups=8
-        self.dw = nn.Conv1d(8, 8, kernel_size=7, stride=2, padding=3, groups=8)
-        self.dw.weight.data = torch.from_numpy(weights['w_dw'])
-        self.dw.bias.data = torch.from_numpy(weights['b_dw'])
-        
-        # Pointwise Conv: 8 in_channels -> 16 out_channels, kernel=1, stride=1
-        self.pw = nn.Conv1d(8, 16, kernel_size=1, stride=1, padding=0)
-        self.pw.weight.data = torch.from_numpy(weights['w_pw'])
-        self.pw.bias.data = torch.from_numpy(weights['b_pw'])
-        
-        # MaxPool1d: pool_size=2, stride=2
-        self.pool = nn.MaxPool1d(kernel_size=2, stride=2, padding=0)
-        
-        # FC1: 16 -> 12
-        self.fc1 = nn.Linear(16, 12)
-        self.fc1.weight.data = torch.from_numpy(weights['w_f1'])
-        self.fc1.bias.data = torch.from_numpy(weights['b_f1'])
-        
-        # FC2 (Output): 12 -> 1
-        self.fc2 = nn.Linear(12, 1)
-        self.fc2.weight.data = torch.from_numpy(weights['w_f2'])
-        self.fc2.bias.data = torch.from_numpy(weights['b_f2'])
-
-    def forward(self, x):
-        # x is (batch, channels=4, timesteps=128)
-        x = F.relu(self.conv1(x))
-        x = self.dw(x)
-        x = F.relu(self.pw(x))
-        x = self.pool(x)
-        x = x.mean(dim=2) # Global Average Pooling
-        x = F.relu(self.fc1(x))
-        x = torch.sigmoid(self.fc2(x))
-        return x
-
-def load_weights_from_tflite(model_path):
-    with open(model_path, 'rb') as f:
-        buf = f.read()
-
-    fb_model = schema_fb.Model.GetRootAsModel(buf, 0)
-    subgraph = fb_model.Subgraphs(0)
-
-    def get_quant_params(idx):
-        t = subgraph.Tensors(idx)
-        q = t.Quantization()
-        scales = np.array([q.Scale(j) for j in range(q.ScaleLength())], dtype=np.float32) if q and q.ScaleLength() > 0 else np.array([1.0], dtype=np.float32)
-        zps = np.array([q.ZeroPoint(j) for j in range(q.ZeroPointLength())], dtype=np.int32) if q and q.ZeroPointLength() > 0 else np.array([0], dtype=np.int32)
-        return scales, zps
-
-    def get_tensor_data(idx):
-        t = subgraph.Tensors(idx)
-        b = fb_model.Buffers(t.Buffer())
-        data_len = b.DataLength()
-        if data_len == 0:
-            return None
-        arr = bytearray(data_len)
-        for i in range(data_len):
-            arr[i] = b.Data(i)
-        shape = [t.Shape(j) for j in range(t.ShapeLength())]
-        if t.Type() == 9:
-            return np.frombuffer(arr, dtype=np.int8).reshape(shape)
-        elif t.Type() == 2:
-            return np.frombuffer(arr, dtype=np.int32).reshape(shape)
-        return arr
-
-    # Conv1
-    w_c1_raw = get_tensor_data(15)
-    s_c1, _ = get_quant_params(15)
-    b_c1_raw = get_tensor_data(14)
-    s_b_c1, _ = get_quant_params(14)
-    w_c1_float = (w_c1_raw.squeeze(1).transpose(0, 2, 1).astype(np.float32)) * s_c1[:, None, None]
-    b_c1_float = b_c1_raw.astype(np.float32) * s_b_c1
-
-    # Depthwise
-    w_dw_raw = get_tensor_data(13)
-    s_dw, _ = get_quant_params(13)
-    b_dw_raw = get_tensor_data(12)
-    s_b_dw, _ = get_quant_params(12)
-    w_dw_float = (w_dw_raw.squeeze(0).squeeze(0).transpose(1, 0)[:, None, :].astype(np.float32)) * s_dw[:, None, None]
-    b_dw_float = b_dw_raw.astype(np.float32) * s_b_dw
-
-    # Pointwise
-    w_pw_raw = get_tensor_data(11)
-    s_pw, _ = get_quant_params(11)
-    b_pw_raw = get_tensor_data(10)
-    s_b_pw, _ = get_quant_params(10)
-    w_pw_float = (w_pw_raw.squeeze(1).transpose(0, 2, 1).astype(np.float32)) * s_pw[:, None, None]
-    b_pw_float = b_pw_raw.astype(np.float32) * s_b_pw
-
-    # FC1
-    w_f1_raw = get_tensor_data(9)
-    s_f1, _ = get_quant_params(9)
-    b_f1_raw = get_tensor_data(8)
-    s_b_f1, _ = get_quant_params(8)
-    w_f1_float = w_f1_raw.astype(np.float32) * s_f1[:, None]
-    b_f1_float = b_f1_raw.astype(np.float32) * s_b_f1
-
-    # FC2
-    w_f2_raw = get_tensor_data(7)
-    s_f2, _ = get_quant_params(7)
-    b_f2_raw = get_tensor_data(6)
-    s_b_f2, _ = get_quant_params(6)
-    w_f2_float = w_f2_raw.astype(np.float32) * s_f2
-    b_f2_float = b_f2_raw.astype(np.float32) * s_b_f2
-
-    return {
-        'w_c1': w_c1_float, 'b_c1': b_c1_float,
-        'w_dw': w_dw_float, 'b_dw': b_dw_float,
-        'w_pw': w_pw_float, 'b_pw': b_pw_float,
-        'w_f1': w_f1_float, 'b_f1': b_f1_float,
-        'w_f2': w_f2_float, 'b_f2': b_f2_float
-    }
-
-print("Initializing TinyML Seizure Inference Engine...")
-weights_dict = load_weights_from_tflite(MODEL_PATH)
-ENGINE_MODEL = TinyMLSeizureNet(weights_dict)
-ENGINE_MODEL.eval()
-print("TinyML Model Ready for Real-time Inference!")
+# Load pre-extracted weights (Fast, lightweight, zero TensorFlow dependency)
+weights_data = np.load(WEIGHTS_PATH)
+W_C1 = weights_data['w_c1'] # (8, 4, 15)
+B_C1 = weights_data['b_c1'] # (8,)
+W_DW = weights_data['w_dw'] # (8, 7)
+B_DW = weights_data['b_dw'] # (8,)
+W_PW = weights_data['w_pw'] # (16, 8)
+B_PW = weights_data['b_pw'] # (16,)
+W_F1 = weights_data['w_f1'] # (12, 16)
+B_F1 = weights_data['b_f1'] # (12,)
+W_F2 = weights_data['w_f2'] # (1, 12)
+B_F2 = weights_data['b_f2'] # (1,)
 
 CHANNELS = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1"]
 
-# Generate 4 Calibrated Reference Examples (2 Seizure, 2 Non-Seizure)
+def forward_pass_numpy(x_norm_4x128):
+    # 1. Conv1D with SAME padding (pad=7 on both sides of timesteps)
+    x_pad = np.pad(x_norm_4x128, ((0,0), (7, 7)), mode='constant')
+    y1 = np.zeros((8, 64), dtype=np.float32)
+    for t in range(64):
+        win = x_pad[:, t*2 : t*2 + 15]
+        y1[:, t] = np.sum(W_C1 * win[None, :, :], axis=(1, 2)) + B_C1
+    y1 = np.maximum(0, y1)
+
+    # 2. Depthwise Conv1D with SAME padding (pad=3)
+    y1_pad = np.pad(y1, ((0,0), (3, 3)), mode='constant')
+    y2 = np.zeros((8, 32), dtype=np.float32)
+    for t in range(32):
+        win = y1_pad[:, t*2 : t*2 + 7]
+        y2[:, t] = np.sum(W_DW * win, axis=1) + B_DW
+
+    # 3. Pointwise Conv1D (16, 8)
+    y3 = W_PW @ y2 + B_PW[:, None]
+    y3 = np.maximum(0, y3)
+
+    # 4. MaxPool1D (size=2, stride=2)
+    y4 = np.maximum(y3[:, 0::2], y3[:, 1::2])
+
+    # 5. Global Average Pooling
+    y5 = np.mean(y4, axis=1)
+
+    # 6. Dense 1
+    y6 = np.maximum(0, W_F1 @ y5 + B_F1)
+
+    # 7. Dense 2 + Sigmoid
+    z = (W_F2 @ y6 + B_F2)[0]
+    prob = 1.0 / (1.0 + np.exp(-z))
+    return float(prob)
+
 def build_reference_examples():
     t = np.linspace(0, 2.0, 128)
     
@@ -213,11 +124,10 @@ def build_reference_examples():
 REFERENCE_EXAMPLES = build_reference_examples()
 
 def compute_spectral_bands(data_4x128):
-    # data_4x128: (4, 128) sampled at 64 Hz
     fs = 64.0
     freqs = np.fft.rfftfreq(128, 1.0 / fs)
     fft_vals = np.abs(np.fft.rfft(data_4x128, axis=1)) ** 2
-    avg_power = np.mean(fft_vals, axis=0) # power across all 4 channels
+    avg_power = np.mean(fft_vals, axis=0)
     
     delta_mask = (freqs >= 0.5) & (freqs < 4.0)
     theta_mask = (freqs >= 4.0) & (freqs < 8.0)
@@ -234,21 +144,18 @@ def compute_spectral_bands(data_4x128):
     }
 
 def run_inference(input_array):
-    # input_array can be (4, 128) or (128, 4)
     arr = np.array(input_array, dtype=np.float32)
     
-    # Shape normalization
     if arr.shape == (128, 4):
-        arr = arr.T # to (4, 128)
+        arr = arr.T
     elif arr.shape == (1, 128, 4):
-        arr = arr[0].T # to (4, 128)
+        arr = arr[0].T
     elif arr.shape == (1, 4, 128):
         arr = arr[0]
     elif arr.ndim == 1:
         if len(arr) == 512:
             arr = arr.reshape(4, 128)
         elif len(arr) == 128:
-            # Replicate single channel to 4 channels
             arr = np.tile(arr, (4, 1))
         else:
             raise ValueError(f"Expected 128 or 512 samples, received {len(arr)}")
@@ -256,16 +163,11 @@ def run_inference(input_array):
     if arr.shape != (4, 128):
         raise ValueError(f"Invalid sequence shape {arr.shape}. Must be 4 channels x 128 samples.")
         
-    # Standardize per channel (Z-score)
     mean_val = np.mean(arr, axis=1, keepdims=True)
     std_val = np.std(arr, axis=1, keepdims=True) + 1e-6
     norm_arr = (arr - mean_val) / std_val
     
-    # Model forward pass
-    tensor_in = torch.from_numpy(norm_arr).unsqueeze(0) # (1, 4, 128)
-    with torch.no_grad():
-        prob = ENGINE_MODEL(tensor_in).item()
-        
+    prob = forward_pass_numpy(norm_arr)
     prob = float(np.clip(prob, 0.0, 1.0))
     is_seizure = prob >= 0.50
     confidence = (prob if is_seizure else (1.0 - prob)) * 100.0
