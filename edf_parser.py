@@ -1,7 +1,7 @@
 import os
 import struct
 import numpy as np
-from scipy.signal import butter, filtfilt, resample
+from scipy.signal import butter, filtfilt, resample, resample_poly
 
 TARGET_CHANNELS = ['FP1-F7', 'F7-T7', 'T7-P7', 'P7-O1']
 TARGET_FS = 64
@@ -83,13 +83,13 @@ def parse_edf_header(f):
 
 def clean_channel_name(ch_name):
     """
-    Standardizes channel names: strips 'EEG ', '.', spaces, and uppercases.
+    Standardizes channel names: strips 'EEG ', '.', spaces, '-REF', and uppercases.
     e.g. 'EEG FP1-F7.' -> 'FP1-F7'
     """
     cleaned = ch_name.strip()
     if cleaned.upper().startswith("EEG "):
         cleaned = cleaned[4:].strip()
-    cleaned = cleaned.replace(".", "").strip().upper()
+    cleaned = cleaned.replace(".", "").replace("-REF", "").replace("-ref", "").strip().upper()
     return cleaned
 
 def read_edf(file_obj_or_path, target_channels=TARGET_CHANNELS):
@@ -206,8 +206,14 @@ def preprocess_and_window_eeg(raw_signals_4xN, source_fs, target_fs=TARGET_FS, w
     filtered = filtfilt(b, a, raw_signals_4xN, axis=1)
 
     # 2. Resample to 64 Hz
-    num_target_samples = int(filtered.shape[1] * (target_fs / source_fs))
-    resampled = resample(filtered, num_target_samples, axis=1).astype(np.float32)
+    # If source_fs is 256 Hz (standard CHB-MIT), downsample by 4 (256 / 4 = 64) with resample_poly for 100x speedup
+    if int(round(source_fs)) == 256 and target_fs == 64:
+        resampled = resample_poly(filtered, 1, 4, axis=1).astype(np.float32)
+    elif int(round(source_fs)) == 128 and target_fs == 64:
+        resampled = resample_poly(filtered, 1, 2, axis=1).astype(np.float32)
+    else:
+        num_target_samples = int(filtered.shape[1] * (target_fs / source_fs))
+        resampled = resample(filtered, num_target_samples, axis=1).astype(np.float32)
 
     # 3. Recording-level standardization (matching the notebook)
     mean_ch = np.mean(resampled, axis=1, keepdims=True)

@@ -14,7 +14,19 @@ import engine
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 CORS(app, resources={r"/api/*": {"origins": "*"}})
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max payload for clinical EDF recordings
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB max payload for full-length CHB-MIT recordings
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({
+        "error": "The uploaded EDF recording exceeds the 500 MB server limit. Please upload an EDF recording under 500 MB."
+    }), 413
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    return jsonify({
+        "error": "An internal server error occurred while evaluating the EEG recording."
+    }), 500
 
 # In-memory sliding window rate limiter (max 60 requests/minute per client IP)
 RATE_LIMIT_WINDOW = 60
@@ -90,6 +102,22 @@ def upload_edf():
     except Exception as e:
         print(f"[Error in /api/upload_edf]: {e}")
         return jsonify({"error": f"Failed to process EDF file: {str(e)}"}), 500
+
+@app.route("/api/edf_window", methods=["GET"])
+def get_edf_window():
+    """Retrieve waveform data for a single window by index on demand."""
+    try:
+        idx = int(request.args.get("idx", 0))
+        win_data = engine.get_cached_window(idx)
+        if win_data is None:
+            return jsonify({"error": f"Window index {idx} not found in active session cache."}), 404
+        return jsonify({
+            "status": "success",
+            "window_index": idx,
+            "data": win_data
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 @app.route("/api/predict", methods=["POST"])
 def predict():

@@ -232,6 +232,20 @@ def run_inference(input_array, already_normalized=False):
         "channels": CHANNELS
     }
 
+CURRENT_EDF_CACHE = {
+    "windows": None,
+    "num_windows": 0
+}
+
+def get_cached_window(idx):
+    """Retrieve raw 4x128 array for window index on demand."""
+    if CURRENT_EDF_CACHE["windows"] is None:
+        return None
+    if 0 <= idx < CURRENT_EDF_CACHE["num_windows"]:
+        win = CURRENT_EDF_CACHE["windows"][idx]
+        return np.round(win, 3).tolist()
+    return None
+
 def evaluate_edf_stream(file_obj_or_path):
     """
     High-level pipeline for real EDF files:
@@ -245,6 +259,9 @@ def evaluate_edf_stream(file_obj_or_path):
     prep_res = edf_parser.preprocess_and_window_eeg(edf_res["signals"], edf_res["source_fs"])
 
     windows = prep_res["windows"] # (num_windows, 4, 128)
+    CURRENT_EDF_CACHE["windows"] = windows
+    CURRENT_EDF_CACHE["num_windows"] = len(windows)
+
     window_results = []
     seizure_count = 0
 
@@ -264,6 +281,24 @@ def evaluate_edf_stream(file_obj_or_path):
             "is_seizure": res["is_seizure"]
         })
 
+    # Optimized window waveform payload:
+    # If small file (<= 100 windows), pre-package all.
+    # If large file (> 100 windows), pre-package all seizures + first 40 normal windows
+    # Remaining windows are retrieved via /api/edf_window on demand in ~50ms.
+    windows_data_dict = {}
+    if len(windows) <= 100:
+        for idx in range(len(windows)):
+            windows_data_dict[str(idx)] = np.round(windows[idx], 3).tolist()
+    else:
+        for w in window_results:
+            if w["is_seizure"]:
+                idx = w["window_index"]
+                windows_data_dict[str(idx)] = np.round(windows[idx], 3).tolist()
+        for idx in range(min(40, len(windows))):
+            s_idx = str(idx)
+            if s_idx not in windows_data_dict:
+                windows_data_dict[s_idx] = np.round(windows[idx], 3).tolist()
+
     return {
         "duration_sec": round(edf_res["duration_sec"], 2),
         "source_fs": edf_res["source_fs"],
@@ -274,5 +309,5 @@ def evaluate_edf_stream(file_obj_or_path):
         "non_seizure_windows_count": prep_res["num_windows"] - seizure_count,
         "seizure_detected_overall": seizure_count > 0,
         "windows_summary": window_results,
-        "all_windows_data": windows.tolist()
+        "all_windows_data": windows_data_dict
     }

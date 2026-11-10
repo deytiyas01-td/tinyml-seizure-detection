@@ -112,7 +112,23 @@ async function handleEdfUpload() {
       body: formData
     });
 
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      if (res.status === 413) {
+        alert("Upload Error: The EDF file exceeds the maximum allowed upload size (500 MB).");
+      } else if (res.status === 504 || res.status === 502) {
+        alert("Upload Error: Server timed out while processing this large EDF recording. Please retry or test with a shorter segment.");
+      } else {
+        alert(`Server Error (HTTP ${res.status}):\n\n${text.slice(0, 300)}`);
+      }
+      statusEl.style.color = "#b91c1c";
+      statusEl.textContent = `Upload failed with HTTP ${res.status}.`;
+      return;
+    }
+
     if (!res.ok || data.error) {
       statusEl.style.color = "#b91c1c";
       statusEl.textContent = `Error: ${data.error || 'Failed to process EDF recording'}`;
@@ -124,7 +140,7 @@ async function handleEdfUpload() {
 
     // Display summary
     statusEl.style.color = "#15803d";
-    statusEl.textContent = `Scan complete for "${data.filename}": ${data.num_windows} windows evaluated.`;
+    statusEl.textContent = `Scan complete for "${data.filename}": ${data.num_windows} consecutive 2.0s windows evaluated.`;
 
     document.getElementById("edfFileName").textContent = data.filename;
     document.getElementById("edfDuration").textContent = `${data.duration_sec}s`;
@@ -134,27 +150,41 @@ async function handleEdfUpload() {
 
     summaryBox.style.display = "block";
 
-    // Populate window selector
+    // Populate window selector with Seizures grouped at the top
     const dropdown = document.getElementById("windowSelectDropdown");
     dropdown.innerHTML = "";
 
-    data.windows_summary.forEach((w) => {
-      const opt = document.createElement("option");
-      opt.value = w.window_index;
-      const tag = w.is_seizure ? " [SEIZURE]" : " [Normal]";
-      opt.textContent = `Window ${w.window_index + 1} (${w.time_range}) ${tag} (${w.confidence_percentage.toFixed(1)}%)`;
-      if (w.is_seizure) {
+    const seizures = data.windows_summary.filter(w => w.is_seizure);
+    const normals = data.windows_summary.filter(w => !w.is_seizure);
+
+    if (seizures.length > 0) {
+      const seizureGroup = document.createElement("optgroup");
+      seizureGroup.label = `🚨 Detected Seizures (${seizures.length} windows)`;
+      seizures.forEach(w => {
+        const opt = document.createElement("option");
+        opt.value = w.window_index;
+        opt.textContent = `Window ${w.window_index + 1} (${w.time_range}) - SEIZURE (${w.confidence_percentage.toFixed(1)}%)`;
         opt.style.color = "#b91c1c";
         opt.style.fontWeight = "bold";
-      }
-      dropdown.appendChild(opt);
+        seizureGroup.appendChild(opt);
+      });
+      dropdown.appendChild(seizureGroup);
+    }
+
+    const normalGroup = document.createElement("optgroup");
+    normalGroup.label = `Normal / Baseline Activity (${normals.length} windows)`;
+    normals.forEach(w => {
+      const opt = document.createElement("option");
+      opt.value = w.window_index;
+      opt.textContent = `Window ${w.window_index + 1} (${w.time_range}) - Normal (${w.confidence_percentage.toFixed(1)}%)`;
+      normalGroup.appendChild(opt);
     });
+    dropdown.appendChild(normalGroup);
 
     // Auto-select first seizure window if one exists, otherwise window 0
     let targetIdx = 0;
-    const firstSeizure = data.windows_summary.find(w => w.is_seizure);
-    if (firstSeizure) {
-      targetIdx = firstSeizure.window_index;
+    if (seizures.length > 0) {
+      targetIdx = seizures[0].window_index;
     }
     dropdown.value = targetIdx;
     loadEdfWindow(targetIdx);
@@ -174,10 +204,9 @@ function handleWindowSelect(e) {
   }
 }
 
-function loadEdfWindow(idx) {
-  if (!uploadedEdfData || !uploadedEdfData.all_windows_data[idx]) return;
+async function loadEdfWindow(idx) {
+  if (!uploadedEdfData) return;
 
-  const windowData = uploadedEdfData.all_windows_data[idx];
   const summary = uploadedEdfData.windows_summary[idx];
   const channels = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1"];
 
@@ -191,16 +220,33 @@ function loadEdfWindow(idx) {
 
   const infoEl = document.getElementById("currentWindowInfo");
   if (infoEl) {
-    infoEl.textContent = `Window ${idx + 1} of ${uploadedEdfData.num_windows} (${summary.time_range})`;
+    infoEl.textContent = `Window ${idx + 1} of ${uploadedEdfData.num_windows} (${summary.time_range}) [${summary.prediction}]`;
   }
 
-  const field = document.getElementById("sequenceField");
-  if (field) {
-    field.value = JSON.stringify(windowData, null, 2);
+  let windowData = (uploadedEdfData.all_windows_data && (uploadedEdfData.all_windows_data[idx] || uploadedEdfData.all_windows_data[String(idx)])) || null;
+
+  if (!windowData) {
+    try {
+      const winRes = await fetch(getApiUrl(`/api/edf_window?idx=${idx}`));
+      const winJson = await winRes.json();
+      if (winJson.data) {
+        windowData = winJson.data;
+        if (!uploadedEdfData.all_windows_data) uploadedEdfData.all_windows_data = {};
+        uploadedEdfData.all_windows_data[String(idx)] = windowData;
+      }
+    } catch (e) {
+      console.warn("Could not fetch window data on demand:", e);
+    }
   }
 
-  renderWaveform(windowData, channels);
-  runDetection(windowData);
+  if (windowData) {
+    const field = document.getElementById("sequenceField");
+    if (field) {
+      field.value = JSON.stringify(windowData, null, 2);
+    }
+    renderWaveform(windowData, channels);
+    runDetection(windowData);
+  }
 }
 
 // Fetch 4 test examples from backend
