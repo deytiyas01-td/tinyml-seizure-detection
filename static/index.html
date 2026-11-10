@@ -23,19 +23,19 @@
       </div>
       <div class="header-status">
         <span class="status-indicator" id="serverStatusIndicator"></span>
-        <span class="status-text" id="serverStatusText">Backend Connected</span>
+        <span class="status-text" id="serverStatusText">Connecting...</span>
         <button class="btn-api-config" id="btnConfigApi" title="Configure Backend API URL">⚙️</button>
       </div>
     </div>
   </header>
 
-  <!-- Optional Backend API URL Modal/Drawer -->
-  <div class="api-config-bar" id="apiConfigBar" style="display: none;">
+  <!-- Prominent Backend Connection Bar -->
+  <div class="api-config-bar" id="apiConfigBar">
     <div class="config-bar-inner">
-      <label for="apiUrlInput">Render Backend URL:</label>
-      <input type="text" id="apiUrlInput" placeholder="e.g. https://tinyml-seizure-detection.onrender.com">
-      <button class="btn btn-primary btn-sm" id="btnSaveApiUrl">Save & Connect</button>
-      <button class="btn btn-outline btn-sm" id="btnResetApiUrl">Use Same Domain</button>
+      <span class="config-title">🔗 Render Backend URL:</span>
+      <input type="text" id="apiUrlInput" placeholder="Paste your Render URL here (e.g. https://tinyml-seizure-detection.onrender.com)">
+      <button class="btn btn-primary btn-sm" id="btnSaveApiUrl">Connect Backend</button>
+      <button class="btn btn-outline btn-sm" id="btnResetApiUrl">Reset</button>
     </div>
   </div>
 
