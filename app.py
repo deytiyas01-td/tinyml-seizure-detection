@@ -47,7 +47,19 @@ def apply_security_headers(response):
 
 @app.route("/")
 def index():
+    if os.path.exists(os.path.join(CURRENT_DIR, "index.html")):
+        return send_from_directory(CURRENT_DIR, "index.html")
     return send_from_directory(app.static_folder, "index.html")
+
+@app.route("/<path:path>")
+def serve_file(path):
+    # Check root dir first
+    if os.path.exists(os.path.join(CURRENT_DIR, path)):
+        return send_from_directory(CURRENT_DIR, path)
+    # Check static folder
+    if os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    return jsonify({"error": f"Path '{path}' not found."}), 404
 
 @app.route("/api/examples", methods=["GET"])
 def get_examples():
