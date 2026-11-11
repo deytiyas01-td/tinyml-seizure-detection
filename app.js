@@ -238,6 +238,12 @@ async function loadEdfWindow(idx) {
   const summary = uploadedEdfData.windows_summary[idx];
   const channels = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1"];
 
+  // Ensure EDF summary container is visible when inspecting EDF windows
+  const edfSummary = document.getElementById("edfSummaryContainer");
+  if (edfSummary) {
+    edfSummary.style.display = "block";
+  }
+
   // De-select synthetic examples
   document.querySelectorAll(".example-item").forEach(item => item.classList.remove("active"));
 
@@ -372,6 +378,7 @@ function renderExamplesList(examples) {
     const card = document.createElement("div");
     card.className = `example-item ${idx === activeExampleIndex ? "active" : ""}`;
     card.id = `example-item-${idx}`;
+    card.style.cursor = "pointer";
 
     const isSeizure = ex.type.includes("seizure") && !ex.type.includes("non");
     const tagClass = isSeizure ? "tag-seizure" : "tag-non-seizure";
@@ -383,8 +390,11 @@ function renderExamplesList(examples) {
         <span class="example-tag ${tagClass}">${tagLabel}</span>
       </div>
       <p class="example-desc">${ex.description}</p>
-      <button class="btn-select" onclick="selectExample(${idx})">Load Signal</button>
+      <button class="btn-select" type="button">Load Signal</button>
     `;
+    card.onclick = (e) => {
+      selectExample(idx);
+    };
     container.appendChild(card);
   });
 }
@@ -397,11 +407,22 @@ window.selectExample = function(idx) {
     item.classList.toggle("active", i === idx);
   });
 
+  // Hide EDF recording summary so it does not conflict with synthetic preset results
+  const edfSummary = document.getElementById("edfSummaryContainer");
+  if (edfSummary) {
+    edfSummary.style.display = "none";
+  }
+  const edfStatus = document.getElementById("edfUploadStatus");
+  if (edfStatus) {
+    edfStatus.style.color = "#64748b";
+    edfStatus.textContent = "Viewing demonstration signal below. Select an EDF file above to scan a real recording.";
+  }
+
   const ex = referenceExamples[idx];
+  const isSez = ex.type.includes("seizure") && !ex.type.includes("non");
   const labelEl = document.getElementById("currentSampleName");
   if (labelEl) {
-    const isSez = ex.type.includes("seizure") && !ex.type.includes("non");
-    labelEl.textContent = `Demo: ${ex.name} (${isSez ? "Seizure" : "Non-Seizure"})`;
+    labelEl.textContent = `Demo: ${ex.name} [${isSez ? "Seizure Pattern" : "Non-Seizure Pattern"}]`;
   }
 
   const field = document.getElementById("sequenceField");

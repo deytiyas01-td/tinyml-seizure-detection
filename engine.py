@@ -139,7 +139,19 @@ def build_reference_examples():
     ]
     return examples
 
-REFERENCE_EXAMPLES = build_reference_examples()
+def load_reference_examples():
+    """Load deterministic verified clinical reference examples from examples.json."""
+    import json
+    examples_path = os.path.join(BASE_DIR, "examples.json")
+    if os.path.exists(examples_path):
+        try:
+            with open(examples_path, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return build_reference_examples()
+
+REFERENCE_EXAMPLES = load_reference_examples()
 
 def compute_spectral_bands(data_4x128):
     fs = 64.0

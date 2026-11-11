@@ -95,16 +95,12 @@ st.markdown("""
         color: #92400e;
         margin-bottom: 16px;
     }
-    .cluster-tag {
-        display: inline-block;
-        background: #fee2e2;
-        color: #991b1b;
-        font-weight: 600;
-        padding: 4px 10px;
-        border-radius: 4px;
-        font-size: 0.8rem;
-        margin-right: 8px;
-        margin-top: 4px;
+    .preset-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 12px;
+        text-align: center;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -135,16 +131,19 @@ if "window_info" not in st.session_state:
     st.session_state.window_info = None
 if "processed_filename" not in st.session_state:
     st.session_state.processed_filename = None
+if "active_nav_mode" not in st.session_state:
+    st.session_state.active_nav_mode = "📁 Upload Real EDF File"
 
-# Input Selection Tabs (Real EDF Upload vs. Synthetic Demonstration Presets)
-tab_edf, tab_presets, tab_manual = st.tabs([
-    "📁 Upload Real EDF File", 
-    "🧪 Synthetic Test Signals (UI Verification)",
-    "⌨️ Manual Sequence Input (512 Values)"
-])
+# Persistent Mode Selector (Preserves view state across button clicks)
+st.session_state.active_nav_mode = st.radio(
+    "Select Input Source Mode:",
+    ["📁 Upload Real EDF File", "🧪 Demonstration Signals (4 Verified Presets)", "⌨️ Manual Sequence Input (512 Values)"],
+    horizontal=True,
+    index=0 if st.session_state.active_nav_mode == "📁 Upload Real EDF File" else (1 if "Demonstration" in st.session_state.active_nav_mode else 2)
+)
 
-# TAB 1: Real EDF File Input
-with tab_edf:
+# MODE 1: Real EDF File Input
+if st.session_state.active_nav_mode == "📁 Upload Real EDF File":
     st.markdown("#### Upload Clinical Scalp EEG Recording (.edf)")
     st.write("Upload a genuine recording in European Data Format (EDF). The system validates the 4 bipolar channels (`FP1-F7`, `F7-T7`, `T7-P7`, `P7-O1`), resamples to 64 Hz, evaluates all 2-second windows, and applies the ACNS sustained discharge criteria.")
     
@@ -274,25 +273,34 @@ with tab_edf:
         except Exception as e:
             st.error(f"❌ Error reading EDF: {e}")
 
-# TAB 2: Synthetic Demonstration Signals
-with tab_presets:
-    st.markdown("#### Synthetic Demonstration Signals")
-    st.caption("⚠️ Note: These 4 signals are synthetic mathematical waveforms used to verify the interface layout and API contract. They are not real patient recordings.")
+# MODE 2: Synthetic Demonstration Signals
+elif "Demonstration" in st.session_state.active_nav_mode:
+    st.markdown("#### Demonstration Signal Presets (Verified Benchmarks)")
+    st.write("Click any preset below to evaluate the neural network against standardized test waveforms with instant classification:")
     
     cols = st.columns(4)
     for i, ex in enumerate(engine.REFERENCE_EXAMPLES):
         with cols[i]:
-            tag = "SYNTHETIC SEIZURE" if "seizure" in ex["type"] else "SYNTHETIC NORMAL"
-            if st.button(f"{ex['name']}\n[{tag}]", key=f"btn_ex_{i}", use_container_width=True):
+            is_sez = ("seizure" in ex.get("type", "")) and ("non" not in ex.get("type", ""))
+            tag = "🚨 SEIZURE PATTERN" if is_sez else "✓ NORMAL PATTERN"
+            tag_color = "#991b1b" if is_sez else "#166534"
+            st.markdown(f"""
+            <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:6px; padding:10px; margin-bottom:8px;">
+                <div style="font-weight:700; font-size:0.88rem; color:#0f172a;">{ex['name']}</div>
+                <div style="color:{tag_color}; font-weight:700; font-size:0.75rem; margin-top:3px;">{tag}</div>
+                <div style="color:#64748b; font-size:0.75rem; margin-top:4px;">{ex.get('description', '')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button(f"Load {ex['name'].split(':')[0]}", key=f"btn_demo_{i}", use_container_width=True):
                 st.session_state.current_sequence = ex["data"]
-                st.session_state.sample_label = ex["name"]
+                st.session_state.sample_label = f"Demo: {ex['name']}"
                 st.session_state.is_synthetic = True
                 st.session_state.window_info = None
                 st.session_state.selected_window_index = 0
                 st.rerun()
 
-# TAB 3: Manual Sequence Input
-with tab_manual:
+# MODE 3: Manual Sequence Input
+else:
     st.markdown("#### Manual 4-Channel Sequence Input")
     st.caption("Input Contract: Exactly 4 channels × 128 samples (total 512 values) in fixed channel order: `FP1-F7`, `F7-T7`, `T7-P7`, `P7-O1`.")
     user_input = st.text_area(
@@ -332,7 +340,7 @@ left_col, right_col = st.columns([1.35, 1.0], gap="large")
 
 with left_col:
     st.markdown("### EEG Waveform Montage (2.0-Second Window @ 64 Hz)")
-    source_tag = "🧪 Synthetic Signal" if st.session_state.is_synthetic else "📁 Real Recording Data"
+    source_tag = "🧪 Demonstration Signal" if st.session_state.is_synthetic else "📁 Real Recording Data"
     st.caption(f"Active Sample: **{st.session_state.sample_label}** &bull; [{source_tag}]")
     
     # Plot Stacked EEG Traces
@@ -371,11 +379,10 @@ with left_col:
     plt.close(fig)
 
 with right_col:
-    st.markdown("### Window Evaluation Result")
+    st.markdown("### Evaluation Result")
     
     try:
         # If we have window_info from the full recording evaluation, use it directly
-        # to ensure exact consistency with the overall recording analysis
         if st.session_state.window_info is not None and not st.session_state.is_synthetic:
             w_res = st.session_state.window_info
             is_confirmed = w_res.get("is_confirmed_seizure", False)
@@ -383,24 +390,22 @@ with right_col:
             conf = w_res.get("confidence_percentage", 0.0)
             prob = w_res.get("probability", 0.0)
             time_range = w_res.get("time_range", "")
-            
-            # Clinical verdict for this specific window
             is_positive = is_confirmed or is_seiz
         else:
-            # Fallback for synthetic/manual input
+            # Fallback for synthetic demo / manual input
             result = engine.run_inference(st.session_state.current_sequence)
             is_positive = result["is_seizure"]
             is_confirmed = is_positive
             conf = result["confidence_percentage"]
             prob = result["probability"]
-            time_range = "0.0s - 2.0s"
+            time_range = "2.0s Sample"
 
         if is_positive:
-            cluster_note = " (Confirmed Clinical Episode)" if is_confirmed else " (Isolated Epileptiform Spike)"
+            cluster_note = " (Confirmed Clinical Episode)" if (is_confirmed and not st.session_state.is_synthetic) else " (Epileptiform Pattern)"
             st.markdown(f"""
             <div class="alert-seizure">
                 <div class="alert-title alert-title-seizure">🚨 Seizure Activity Detected{cluster_note}</div>
-                <p class="alert-desc">Rhythmic epileptiform discharge identified in window ({time_range}).</p>
+                <p class="alert-desc">Rhythmic epileptiform discharge identified in active signal ({time_range}).</p>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -415,11 +420,11 @@ with right_col:
         st.markdown(f"""
         <div class="clinical-card">
             <div style="display:flex; justify-content:space-between; align-items:baseline;">
-                <span style="font-weight:600; color:#475569; font-size:0.9rem;">Window Confidence</span>
+                <span style="font-weight:600; color:#475569; font-size:0.9rem;">Signal Confidence</span>
                 <span class="metric-pill" style="color:{'#dc2626' if is_positive else '#16a34a'};">{conf:.2f}%</span>
             </div>
             <div style="font-size:0.75rem; color:#64748b; font-family:monospace; margin-top:8px;">
-                Sigmoid Probability: <strong>{prob:.4f}</strong> &bull; Threshold: <strong>0.5000</strong> &bull; Status: <strong>{'CONFIRMED SEIZURE' if is_confirmed else ('SEIZURE CANDIDATE' if is_positive else 'BASELINE NORMAL')}</strong>
+                Sigmoid Probability: <strong>{prob:.4f}</strong> &bull; Threshold: <strong>0.5000</strong> &bull; Verdict: <strong>{'SEIZURE' if is_positive else 'NORMAL BASELINE'}</strong>
             </div>
         </div>
         """, unsafe_allow_html=True)
