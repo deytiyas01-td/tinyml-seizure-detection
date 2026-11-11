@@ -95,6 +95,17 @@ st.markdown("""
         color: #92400e;
         margin-bottom: 16px;
     }
+    .cluster-tag {
+        display: inline-block;
+        background: #fee2e2;
+        color: #991b1b;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        margin-right: 8px;
+        margin-top: 4px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -118,10 +129,12 @@ if "is_synthetic" not in st.session_state:
     st.session_state.is_synthetic = True
 if "edf_analysis" not in st.session_state:
     st.session_state.edf_analysis = None
-if "active_window_index" not in st.session_state:
-    st.session_state.active_window_index = 0
+if "selected_window_index" not in st.session_state:
+    st.session_state.selected_window_index = 0
 if "window_info" not in st.session_state:
     st.session_state.window_info = None
+if "processed_filename" not in st.session_state:
+    st.session_state.processed_filename = None
 
 # Input Selection Tabs (Real EDF Upload vs. Synthetic Demonstration Presets)
 tab_edf, tab_presets, tab_manual = st.tabs([
@@ -133,7 +146,7 @@ tab_edf, tab_presets, tab_manual = st.tabs([
 # TAB 1: Real EDF File Input
 with tab_edf:
     st.markdown("#### Upload Clinical Scalp EEG Recording (.edf)")
-    st.write("Upload a genuine recording in European Data Format (EDF). The system will validate the 4 required bipolar channels (`FP1-F7`, `F7-T7`, `T7-P7`, `P7-O1`), resample from source frequency to 64 Hz, and evaluate consecutive 2-second windows.")
+    st.write("Upload a genuine recording in European Data Format (EDF). The system validates the 4 bipolar channels (`FP1-F7`, `F7-T7`, `T7-P7`, `P7-O1`), resamples to 64 Hz, evaluates all 2-second windows, and applies the ACNS sustained discharge criteria.")
     
     # 1-Click sample download button
     sample_file_path = os.path.join(BASE_DIR, "static", "chb_clinical_seizure_sample.edf")
@@ -152,18 +165,34 @@ with tab_edf:
     
     if uploaded_file is not None:
         try:
-            with st.spinner("Processing recording and evaluating consecutive 2s windows..."):
-                edf_res = engine.evaluate_edf_stream(uploaded_file)
-                st.session_state.edf_analysis = edf_res
+            # Only re-evaluate if new file uploaded
+            if st.session_state.processed_filename != uploaded_file.name or st.session_state.edf_analysis is None:
+                with st.spinner("Processing recording and evaluating consecutive 2s windows..."):
+                    edf_res = engine.evaluate_edf_stream(uploaded_file)
+                    st.session_state.edf_analysis = edf_res
+                    st.session_state.processed_filename = uploaded_file.name
+                    
+                    # Auto-select the first CONFIRMED seizure window upon file upload
+                    confirmed_wins = [w for w in edf_res["windows_summary"] if w.get("is_confirmed_seizure")]
+                    if confirmed_wins:
+                        st.session_state.selected_window_index = confirmed_wins[0]["window_index"]
+                    else:
+                        st.session_state.selected_window_index = 0
+            else:
+                edf_res = st.session_state.edf_analysis
             
             # Overall Clinical Verdict Banner
             if edf_res.get("seizure_detected_overall"):
+                clusters = edf_res.get("seizure_clusters", [])
+                cluster_desc = ""
+                if clusters:
+                    cluster_desc = f" | Primary episode: {clusters[0]['start_time']} to {clusters[0]['end_time']} (Peak Probability: {clusters[0]['peak_probability'] * 100:.1f}%)"
                 st.markdown(f"""
                 <div class="alert-seizure">
                     <div class="alert-title alert-title-seizure">🚨 CLINICAL SEIZURE ACTIVITY DETECTED ACROSS RECORDING</div>
                     <p class="alert-desc">
                         Detected <strong>{edf_res['seizure_windows_count']} confirmed seizure windows</strong> 
-                        ({edf_res['seizure_windows_count'] * 2.0:.1f}s duration) satisfying ACNS clinical criteria (&ge;8.0s sustained epileptiform discharge).
+                        ({edf_res['seizure_windows_count'] * 2.0:.1f}s duration) satisfying ACNS clinical criteria (&ge;8.0s sustained epileptiform discharge).{cluster_desc}
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -185,47 +214,59 @@ with tab_edf:
             # Channel Mapping Confirmation
             st.caption(f"**Verified Bipolar Channels:** {', '.join([f'{k} -> {v}' for k, v in edf_res['channel_mapping'].items()])}")
 
-            # Window Navigator Slider
-            if edf_res['num_windows'] > 0:
-                # Find first seizure window index if available
-                first_seizure_idx = 0
-                for w in edf_res["windows_summary"]:
-                    if w.get("is_confirmed_seizure") or w.get("is_seizure"):
-                        first_seizure_idx = w["window_index"]
-                        break
+            # Window Navigation Controls
+            num_win = edf_res['num_windows']
+            if num_win > 0:
+                confirmed_wins = [w for w in edf_res["windows_summary"] if w.get("is_confirmed_seizure")]
 
-                nav_col1, nav_col2 = st.columns([3, 1])
-                with nav_col2:
-                    if edf_res.get("seizure_detected_overall") and st.button(f"⚡ Jump to Seizure (Win {first_seizure_idx})", use_container_width=True):
-                        st.session_state.active_window_index = first_seizure_idx
-                
-                with nav_col1:
-                    selected_w = st.slider(
-                        "Navigate 2-Second Consecutive Windows:",
-                        min_value=0,
-                        max_value=edf_res['num_windows'] - 1,
-                        value=st.session_state.active_window_index if st.session_state.active_window_index < edf_res['num_windows'] else 0,
-                        format="Window %d",
-                        key="window_slider"
+                # If confirmed seizure windows exist, offer direct 1-click jump & selector
+                if confirmed_wins:
+                    st.markdown("##### ⚡ Quick Seizure Event Navigator")
+                    seizure_options = {
+                        w["window_index"]: f"Window {w['window_index']} ({w['time_range']}) — Conf: {w['confidence_percentage']:.1f}% ({'🚨 SEIZURE' if w['is_seizure'] else 'Transitional'})"
+                        for w in confirmed_wins
+                    }
+                    selected_seizure_win = st.selectbox(
+                        "Jump directly to any confirmed seizure window:",
+                        options=list(seizure_options.keys()),
+                        format_func=lambda idx: seizure_options[idx],
+                        key="seizure_dropdown"
                     )
-                    st.session_state.active_window_index = selected_w
+                    if st.button("Load Selected Seizure Window", type="primary", use_container_width=False):
+                        st.session_state.selected_window_index = selected_seizure_win
+                        st.rerun()
 
-                w_info = edf_res["windows_summary"][selected_w]
+                # Continuous Window Slider
+                st.markdown("##### Continuous Window Slider")
+                slider_val = st.slider(
+                    "Navigate 2-Second Consecutive Windows:",
+                    min_value=0,
+                    max_value=num_win - 1,
+                    value=min(st.session_state.selected_window_index, num_win - 1),
+                    format="Window %d",
+                    key="window_num_slider"
+                )
+                
+                # Update selected index from slider if changed
+                current_active_idx = slider_val
+                st.session_state.selected_window_index = current_active_idx
+
+                w_info = edf_res["windows_summary"][current_active_idx]
                 st.session_state.window_info = w_info
 
-                # Safe window data retrieval (handles string key or cached array)
-                str_key = str(selected_w)
+                # Retrieve window waveform array safely
+                str_key = str(current_active_idx)
                 all_data = edf_res.get("all_windows_data", {})
                 if str_key in all_data:
                     win_arr = all_data[str_key]
-                elif selected_w in all_data:
-                    win_arr = all_data[selected_w]
+                elif current_active_idx in all_data:
+                    win_arr = all_data[current_active_idx]
                 else:
-                    win_arr = engine.get_cached_window(selected_w)
+                    win_arr = engine.get_cached_window(current_active_idx)
 
                 if win_arr is not None:
                     st.session_state.current_sequence = win_arr
-                    st.session_state.sample_label = f"{uploaded_file.name} — Window {selected_w} ({w_info['time_range']})"
+                    st.session_state.sample_label = f"{uploaded_file.name} — Window {current_active_idx} ({w_info['time_range']})"
                     st.session_state.is_synthetic = False
                 
         except ValueError as ve:
@@ -247,6 +288,8 @@ with tab_presets:
                 st.session_state.sample_label = ex["name"]
                 st.session_state.is_synthetic = True
                 st.session_state.window_info = None
+                st.session_state.selected_window_index = 0
+                st.rerun()
 
 # TAB 3: Manual Sequence Input
 with tab_manual:
@@ -331,35 +374,39 @@ with right_col:
     st.markdown("### Window Evaluation Result")
     
     try:
-        # If we already have window_info from full recording evaluation, use it directly
-        # to avoid re-normalizing isolated windows
+        # If we have window_info from the full recording evaluation, use it directly
+        # to ensure exact consistency with the overall recording analysis
         if st.session_state.window_info is not None and not st.session_state.is_synthetic:
             w_res = st.session_state.window_info
-            is_seizure = w_res.get("is_seizure", False)
             is_confirmed = w_res.get("is_confirmed_seizure", False)
+            is_seiz = w_res.get("is_seizure", False)
             conf = w_res.get("confidence_percentage", 0.0)
             prob = w_res.get("probability", 0.0)
             time_range = w_res.get("time_range", "")
+            
+            # Clinical verdict for this specific window
+            is_positive = is_confirmed or is_seiz
         else:
             # Fallback for synthetic/manual input
             result = engine.run_inference(st.session_state.current_sequence)
-            is_seizure = result["is_seizure"]
-            is_confirmed = is_seizure
+            is_positive = result["is_seizure"]
+            is_confirmed = is_positive
             conf = result["confidence_percentage"]
             prob = result["probability"]
             time_range = "0.0s - 2.0s"
 
-        if is_confirmed or is_seizure:
+        if is_positive:
+            cluster_note = " (Confirmed Clinical Episode)" if is_confirmed else " (Isolated Epileptiform Spike)"
             st.markdown(f"""
             <div class="alert-seizure">
-                <div class="alert-title alert-title-seizure">Seizure Activity Detected</div>
-                <p class="alert-desc">Rhythmic epileptiform activity identified in window ({time_range}).</p>
+                <div class="alert-title alert-title-seizure">🚨 Seizure Activity Detected{cluster_note}</div>
+                <p class="alert-desc">Rhythmic epileptiform discharge identified in window ({time_range}).</p>
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown(f"""
             <div class="alert-normal">
-                <div class="alert-title alert-title-normal">No Seizure Detected (Normal EEG)</div>
+                <div class="alert-title alert-title-normal">✓ No Seizure Detected (Normal EEG)</div>
                 <p class="alert-desc">Baseline physiological rhythm within normal limits ({time_range}).</p>
             </div>
             """, unsafe_allow_html=True)
@@ -368,11 +415,11 @@ with right_col:
         st.markdown(f"""
         <div class="clinical-card">
             <div style="display:flex; justify-content:space-between; align-items:baseline;">
-                <span style="font-weight:600; color:#475569; font-size:0.9rem;">Confidence</span>
-                <span class="metric-pill" style="color:{'#dc2626' if (is_confirmed or is_seizure) else '#16a34a'};">{conf:.2f}%</span>
+                <span style="font-weight:600; color:#475569; font-size:0.9rem;">Window Confidence</span>
+                <span class="metric-pill" style="color:{'#dc2626' if is_positive else '#16a34a'};">{conf:.2f}%</span>
             </div>
             <div style="font-size:0.75rem; color:#64748b; font-family:monospace; margin-top:8px;">
-                Sigmoid Output Probability: <strong>{prob:.4f}</strong> &bull; Threshold: <strong>0.5000</strong>
+                Sigmoid Probability: <strong>{prob:.4f}</strong> &bull; Threshold: <strong>0.5000</strong> &bull; Status: <strong>{'CONFIRMED SEIZURE' if is_confirmed else ('SEIZURE CANDIDATE' if is_positive else 'BASELINE NORMAL')}</strong>
             </div>
         </div>
         """, unsafe_allow_html=True)
